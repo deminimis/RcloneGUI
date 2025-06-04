@@ -1,5 +1,10 @@
 # Rclone GUI: A User-Friendly Interface for Cloud Storage Management
 
+<img src="https://raw.githubusercontent.com/deminimis/RcloneGUI/main/assets/Rclone%20GUI.png" alt="My Image" style="width:50%;">
+
+
+
+
 ## Introduction
 
 Effortlessly manage your files across multiple cloud storage providers like pCloud, all from a modern desktop application. **Rclone GUI** brings the power of [rclone](https://rclone.org/), a command-line tool for syncing files with cloud services, into an intuitive graphical interface. Whether you're a casual user looking to back up files or a power user automating complex sync tasks, this GUI simplifies the process while retaining rclone's robust functionality.
@@ -18,7 +23,12 @@ Proprietary cloud drivers, such as Dropbox or Google Drive, often come with bloa
 ## Installation
 Literally just stick the .exe in the same folder as Rclone (also open-source, download with the link above). When you open it, it automatically reads any rclone.conf file in the directory, or helps create your first remote if there is none. 
 
+If you have Python installed, just drop the source files in the directory and run `rclone_gui.py`, not .exe needed. 
+
 ## Features
+
+![Logo](https://github.com/deminimis/RcloneGUI/blob/main/assets/rclone2.png)
+![Logo](https://github.com/deminimis/RcloneGUI/blob/main/assets/rclone3.png) 
 
 - **Intuitive File Navigation**: Browse local and remote (cloud) directories side-by-side with double-click navigation for folders.
 - **Seamless Operations**: Perform copy or sync operations between local and remote locations with customizable flags (e.g., `-P --checksum`).
@@ -39,6 +49,9 @@ Literally just stick the .exe in the same folder as Rclone (also open-source, do
    - Select files/folders and use "Copy" or "Sync" buttons to transfer data.
 3. **Manage Associated Lists**: Save local paths to a remote’s associated list for quick access and batch operations.
 4. **Generate Batch Files**: Create scripts for automated sync tasks, customizable with logging and password options. Then just point the Task Scheduler to that .bat file to automatically run at designated times/intervals. 
+
+<img src="https://github.com/deminimis/RcloneGUI/blob/main/assets/rclone4.png" alt="My Image" style="width:50%;">
+
 
 ## Technical Details
 
