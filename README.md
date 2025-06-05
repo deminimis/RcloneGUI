@@ -23,7 +23,7 @@ Proprietary cloud drivers, such as Dropbox or Google Drive, often come with bloa
 ## Installation
 Literally just stick the .exe in the same folder as Rclone (also open-source, download with the link above). When you open it, it automatically reads any rclone.conf file in the directory, or helps create your first remote if there is none. 
 
-If you have Python installed, just drop the source files in the directory and run `rclone_gui.py`, not .exe needed. 
+If you have Python3 installed, just drop the source files in the directory and run `rclone_gui.py`, no .exe needed. 
 
 ## Features
 
@@ -54,6 +54,9 @@ If you have Python installed, just drop the source files in the directory and ru
 
 
 ## Technical Details
+
+### Building
+You can compile with pyinstaller, but if you already have python3 installed and set in path, you don't even have to compile. You can just open the `rclon_gui.py` with the `src` files in the same directory, and you have the same GUI with ~120kb of script. 
 
 ### Architecture
 The Rclone GUI is a Python application built with `tkinter` and `ttk` for the interface, leveraging rclone’s command-line capabilities. Key components include:
