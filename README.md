@@ -3,7 +3,7 @@
 <img src="https://raw.githubusercontent.com/deminimis/RcloneGUI/main/assets/Rclone%20GUI.png" alt="My Image" style="width:50%;">
 
 
-
+## 💾 Download the latest version [here](https://github.com/deminimis/RcloneGUI/releases).
 
 ## Introduction
 
