@@ -1,4 +1,3 @@
-# autoconfig.py
 import subprocess
 import os
 import threading
@@ -14,11 +13,11 @@ MSG_TYPE_RCLONE_OUTPUT = "rclone_output"
 MSG_TYPE_PROMPT_AUTH_DIALOG = "prompt_auth_dialog"
 MSG_TYPE_AUTOMATION_COMPLETE = "automation_complete"
 
-DEFAULT_PASSWORD_STRENGTH_BITS = "128" # Kept in case rclone asks even if we don't plan to use 'g'
+DEFAULT_PASSWORD_STRENGTH_BITS = "128"
 
 def stream_output_for_automation(pipe, is_stderr, worker_queue_to_gui):
     try:
-        for line in iter(pipe.readline, ''): # Use iter to read line by line
+        for line in iter(pipe.readline, ''):
             if worker_queue_to_gui:
                 worker_queue_to_gui.put((MSG_TYPE_RCLONE_OUTPUT, (line, is_stderr)))
     except Exception as e: 
@@ -31,7 +30,6 @@ def stream_output_for_automation(pipe, is_stderr, worker_queue_to_gui):
 
 
 def automate_pcloud_config(remote_name, worker_queue_to_gui, auth_event_from_gui, get_auth_result_func, completion_queue_to_gui, get_detected_auth_url_func, config_password=None ):
-    # This function remains unchanged from your previously working version.
     logger.info(f"Starting automated pCloud config for remote: '{remote_name}'")
     if worker_queue_to_gui:
         worker_queue_to_gui.put((MSG_TYPE_RCLONE_OUTPUT, (f"--- Starting pCloud configuration for '{remote_name}' ---\n", False)))
@@ -46,8 +44,8 @@ def automate_pcloud_config(remote_name, worker_queue_to_gui, auth_event_from_gui
         if not isinstance(process, subprocess.Popen):
             error_msg_from_rclone_run = str(process)
             logger.error(f"Failed to start rclone config process. run_rclone_command reported: {error_msg_from_rclone_run}")
-            if worker_queue_to_gui: worker_queue_to_gui.put((MSG_TYPE_RCLONE_OUTPUT, (f"ERROR: Could not start rclone config: {error_msg_from_rclone_run}\nIs rclone.exe available and not blocked by antivirus?\n", True)))
-            if completion_queue_to_gui: completion_queue_to_gui.put((MSG_TYPE_AUTOMATION_COMPLETE, (False, "pCloud"))) # Ensure tuple
+            if worker_queue_to_gui: worker_queue_to_gui.put((MSG_TYPE_RCLONE_OUTPUT, (f"ERROR: Could not start rclone config: {error_msg_from_rclone_run}\nIs rclone executable available and not blocked by antivirus?\n", True)))
+            if completion_queue_to_gui: completion_queue_to_gui.put((MSG_TYPE_AUTOMATION_COMPLETE, (False, "pCloud")))
             return
         stdout_thread = threading.Thread(target=stream_output_for_automation, args=(process.stdout, False, worker_queue_to_gui))
         stderr_thread = threading.Thread(target=stream_output_for_automation, args=(process.stderr, True, worker_queue_to_gui))
@@ -122,7 +120,7 @@ def automate_pcloud_config(remote_name, worker_queue_to_gui, auth_event_from_gui
                 success_flag = False 
                 logger.info(f"PCloud: Attempting to delete '{remote_name}' due to user cancellation.")
                 if worker_queue_to_gui: worker_queue_to_gui.put((MSG_TYPE_RCLONE_OUTPUT,(f"Attempting delete of '{remote_name}'...\n", False)))
-                def gui_log_del_safe(msg, err=False): # Renamed to avoid conflict
+                def gui_log_del_safe(msg, err=False):
                     if worker_queue_to_gui:
                         worker_queue_to_gui.put((MSG_TYPE_RCLONE_OUTPUT, (msg + "\n", err)))
                 del_o, del_e, del_rc = rclone_wrapper.run_rclone_command(["config", "delete", remote_name], True, gui_log_del_safe, False, config_password)
@@ -140,8 +138,8 @@ def automate_pcloud_config(remote_name, worker_queue_to_gui, auth_event_from_gui
 def automate_crypt_config(remote_name,
                           target_remote, 
                           filename_encryption_gui_choice, 
-                          directory_name_encryption_gui_choice, # Boolean from GUI
-                          password_main_value,    # User MUST provide this
+                          directory_name_encryption_gui_choice,
+                          password_main_value,
                           worker_queue_to_gui,
                           completion_queue_to_gui,
                           config_password=None
@@ -173,29 +171,23 @@ def automate_crypt_config(remote_name,
         fn_encrypt_rclone_map = {"standard": "1", "obfuscate": "2", "off": "3"}
         fn_encrypt_input = fn_encrypt_rclone_map.get(filename_encryption_gui_choice, "1") 
 
-        # Directory name encryption: 1 for true/encrypt, 2 for false/don't encrypt
         dir_encrypt_input = "1" if directory_name_encryption_gui_choice else "2"
-
-        # Main Password choice is always 'y' (user types it)
         main_password_choice_rclone = "y"
-        
-        # Salt (Password2) choice: Always 'n' (use rclone's default internal salt)
         salt_choice_rclone = "n"
 
         inputs = [
-            "n",  # New remote
+            "n",
             remote_name,
             "crypt",
             target_remote, 
             fn_encrypt_input,
             dir_encrypt_input,
-            main_password_choice_rclone, # 'y'
-            password_main_value,         # actual password
-            password_main_value,         # confirm password
-            salt_choice_rclone,          # 'n' for salt
-            # No further inputs for salt if 'n'
-            "n",  # Adv config: n
-            "y"   # Yes this is OK: y
+            main_password_choice_rclone,
+            password_main_value,
+            password_main_value,
+            salt_choice_rclone,
+            "n",
+            "y"
         ]
         
         current_input_description = "Initial inputs"
@@ -209,7 +201,7 @@ def automate_crypt_config(remote_name,
             log_item_display = '********' if is_pw_field else item_to_send
             gui_item_display = log_item_display
             
-            idx_of_main_pw_choice = inputs.index(main_password_choice_rclone) # Should be around index 6
+            idx_of_main_pw_choice = inputs.index(main_password_choice_rclone)
             if item_idx <= idx_of_main_pw_choice : current_input_description = f"option/choice {item_idx+1}"
             elif item_idx <= idx_of_main_pw_choice + 2: current_input_description = "main password value/confirm"
             elif item_idx == idx_of_main_pw_choice + 3 : current_input_description = "salt choice 'n'"

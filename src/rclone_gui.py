@@ -1,4 +1,3 @@
-# rclone_gui.py
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, scrolledtext, simpledialog
 import rclone_wrapper as rclone
@@ -6,82 +5,72 @@ import autoconfig
 import os
 import sys
 import subprocess
-import log_utils # Primary logging utility
+import log_utils
 import threading
 import queue
 import traceback
-import logging # For isinstance checks and standard logging levels
+import logging
 import json
 import re
 from datetime import datetime
-
 from graphite_theme import apply_graphite_theme
 
-# Define PrintLogger in the global script scope as a fallback
 class PrintLogger:
     def _log(self, level_name, msg, exc_info=False):
         timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         print(f"{timestamp} - {level_name.upper()}: {msg}")
         if exc_info:
             print(traceback.format_exc())
-
     def info(self, msg, exc_info=False): self._log("info", msg, exc_info)
     def error(self, msg, exc_info=False): self._log("error", msg, exc_info)
     def warning(self, msg, exc_info=False): self._log("warning", msg, exc_info)
     def critical(self, msg, exc_info=False): self._log("critical", msg, exc_info)
     def debug(self, msg, exc_info=False): self._log("debug", msg, exc_info)
-    
     def log(self, level, msg, exc_info=False):
         level_name = level
         if isinstance(level, int):
             level_name = logging.getLevelName(level)
         self._log(str(level_name).lower(), msg, exc_info)
 
-# Global logger instance, initialized using log_utils or PrintLogger fallback
 logger = None
 try:
     log_utils.setup_logging()
     logger = log_utils.get_logger("RcloneGUI_App")
-except Exception as e_log_setup: # pragma: no cover
+except Exception as e_log_setup:
     fallback_logger = PrintLogger()
     fallback_logger.critical(f"CRITICAL ERROR during initial logging setup with log_utils: {e_log_setup}", exc_info=True)
     fallback_logger.critical("Falling back to console-based PrintLogger.")
     logger = fallback_logger
 
-if logger is None: # pragma: no cover
+if logger is None:
     logger = PrintLogger()
     logger.critical("Logger was unexpectedly None after fallback. Re-initialized to PrintLogger.")
-
 
 MSG_TYPE_RCLONE_OUTPUT = "rclone_output"
 MSG_TYPE_PROMPT_AUTH_DIALOG = "prompt_auth_dialog"
 MSG_TYPE_AUTOMATION_COMPLETE = "automation_complete" 
 ASSOCIATED_LISTS_FILE = "rclone_gui_associated_lists.json"
 
-
 class PasswordDialog(simpledialog.Dialog):
     def __init__(self, parent, title="Rclone Configuration Password", theme_colors_dict=None):
         self.theme_colors = theme_colors_dict
         self.result = None
         super().__init__(parent, title)
-
     def body(self, master):
         label_fg = 'SystemButtonText'
-        if self.theme_colors: # pragma: no branch
+        if self.theme_colors:
             master.configure(bg=self.theme_colors['WINDOW_BG'])
             label_fg = self.theme_colors.get('TEXT_COLOR', 'SystemButtonText')
         instr_text = "Rclone configuration seems to be encrypted.\nPlease enter the password:"
         instr_label = tk.Label(master, text=instr_text, wraplength=300, justify=tk.LEFT)
-        if self.theme_colors: # pragma: no branch
+        if self.theme_colors:
             instr_label.configure(bg=self.theme_colors['WINDOW_BG'], fg=label_fg)
         instr_label.pack(pady=(10,5), padx=10)
         self.password_entry = ttk.Entry(master, show="*", width=40)
         self.password_entry.pack(pady=5, padx=10)
         return self.password_entry
-
     def apply(self):
         self.result = self.password_entry.get()
-
     def buttonbox(self):
         box = ttk.Frame(self)
         ok_button = ttk.Button(box, text="OK", width=10, command=self.ok, default=tk.ACTIVE)
@@ -92,11 +81,10 @@ class PasswordDialog(simpledialog.Dialog):
         self.bind("<Escape>", self.cancel)
         box.pack()
 
-
 class AuthSuccessDialog(tk.Toplevel):
     def __init__(self, parent, auth_url="", theme_colors=None):
         super().__init__(parent)
-        if theme_colors: # pragma: no branch
+        if theme_colors:
             self.configure(bg=theme_colors['WINDOW_BG'])
         self.transient(parent)
         self.title("Browser Authorization Step")
@@ -200,7 +188,7 @@ class BatchGenDialog(simpledialog.Dialog):
         fp = filedialog.askopenfilename(parent=self,title="Select rclone.exe",filetypes=[("Exe","*.exe"),("All","*.*")])
         if fp: self.rclone_exe_var.set(fp)
     def ok(self, event=None):
-        if not self.validate(): self.initial_focus.focus_set(); return # type: ignore
+        if not self.validate(): self.initial_focus.focus_set(); return
         self.withdraw(); self.update_idletasks(); self.apply(); super().ok(event) 
     def validate(self):
         if self.log_enabled_var.get() and not self.log_file_var.get().strip(): messagebox.showerror("Validation Error","Log file path empty.",parent=self); return 0
@@ -215,28 +203,22 @@ class BatchGenDialog(simpledialog.Dialog):
                        "hardcoded_password":self.hardcoded_password_var.get() if self.password_option_var.get()=="hardcode" else "",
                        "rclone_exe":self.rclone_exe_var.get().strip()}
 
-class CryptSetupDialog(simpledialog.Dialog): # MODIFIED for further simplification
-    def __init__(self, parent, title="Setup Crypt Remote", theme_colors_dict=None, existing_remotes=None): # title changed
+class CryptSetupDialog(simpledialog.Dialog):
+    def __init__(self, parent, title="Setup Crypt Remote", theme_colors_dict=None, existing_remotes=None):
         self.theme_colors = theme_colors_dict
         self.existing_remotes = existing_remotes if existing_remotes else []
         self.result = None
         self.dialog_logger = logger 
         super().__init__(parent, title)
-
     def body(self, master):
         if self.theme_colors: 
             master.configure(bg=self.theme_colors['WINDOW_BG'])
-        
         outer_frame = ttk.Frame(master) 
         outer_frame.pack(padx=10, pady=10, fill=tk.BOTH, expand=True)
-
-        # Crypt Remote Name
         ttk.Label(outer_frame, text="New Crypt Remote Name:").grid(row=0, column=0, sticky="w", padx=5, pady=3)
         self.remote_name_entry = ttk.Entry(outer_frame, width=45)
         self.remote_name_entry.grid(row=0, column=1, sticky="ew", padx=5, pady=3)
         ttk.Label(outer_frame, text="(e.g., mySecureDrive)").grid(row=1, column=1, sticky="w", padx=5, pady=(0,10))
-
-        # Target Remote (uses root of selected remote)
         ttk.Label(outer_frame, text="Target Remote (crypt uses its root):").grid(row=2, column=0, sticky="w", padx=5, pady=3)
         if not self.existing_remotes:
              ttk.Label(outer_frame, text="No existing remotes found to target!", foreground="red").grid(row=2, column=1, sticky="ew", padx=5, pady=3)
@@ -247,8 +229,6 @@ class CryptSetupDialog(simpledialog.Dialog): # MODIFIED for further simplificati
             self.target_combo.grid(row=2, column=1, sticky="ew", padx=5, pady=3)
             if self.existing_remotes: self.target_combo.current(0) 
         ttk.Label(outer_frame, text="Select an existing remote. Encrypted data will be stored in its root.").grid(row=3, column=1, sticky="w", padx=5, pady=(0,10))
-        
-        # Filename Encryption
         ttk.Label(outer_frame, text="Filename Encryption:").grid(row=4, column=0, sticky="w", padx=5, pady=3)
         self.fn_encrypt_var = tk.StringVar(value="standard") 
         fn_options = {
@@ -259,35 +239,27 @@ class CryptSetupDialog(simpledialog.Dialog): # MODIFIED for further simplificati
         fn_frame = ttk.Frame(outer_frame); fn_frame.grid(row=5, column=0, columnspan=2, sticky="w", padx=5)
         for text, val in fn_options.items():
             ttk.Radiobutton(fn_frame, text=text, variable=self.fn_encrypt_var, value=val).pack(anchor="w", pady=1)
-        
-        # Directory Name Encryption - Re-added as a choice
         ttk.Label(outer_frame, text="Directory Name Encryption:").grid(row=6, column=0, sticky="w", padx=5, pady=(10,3))
-        self.dir_encrypt_var = tk.BooleanVar(value=True) # Default to encrypting
+        self.dir_encrypt_var = tk.BooleanVar(value=True)
         dir_frame = ttk.Frame(outer_frame)
         dir_frame.grid(row=7, column=0, columnspan=2, sticky="w", padx=5)
         ttk.Radiobutton(dir_frame, text="Encrypt directory names (Recommended)", variable=self.dir_encrypt_var, value=True).pack(anchor="w", pady=1)
         ttk.Radiobutton(dir_frame, text="Do NOT encrypt directory names", variable=self.dir_encrypt_var, value=False).pack(anchor="w", pady=1)
-        ttk.Label(outer_frame, text=" ").grid(row=8, column=1, sticky="w", padx=5, pady=(0,5)) # Spacer
-
-        # Main Password - User MUST provide this
+        ttk.Label(outer_frame, text=" ").grid(row=8, column=1, sticky="w", padx=5, pady=(0,5))
         pw_frame = ttk.LabelFrame(outer_frame, text="Main Encryption Password (Required)", padding=5)
         pw_frame.grid(row=9, column=0, columnspan=2, sticky="ew", padx=5, pady=(5,5))
         pw_frame.columnconfigure(1, weight=1)
-
         ttk.Label(pw_frame, text="Main Password:").grid(row=0, column=0, sticky="w", padx=5, pady=3)
         self.pw1_entry = ttk.Entry(pw_frame, show="*", width=35)
         self.pw1_entry.grid(row=0, column=1, sticky="ew", padx=5, pady=3)
         ttk.Label(pw_frame, text="Confirm Main Password:").grid(row=1, column=0, sticky="w", padx=5, pady=3)
         self.pw1_confirm_entry = ttk.Entry(pw_frame, show="*", width=35)
         self.pw1_confirm_entry.grid(row=1, column=1, sticky="ew", padx=5, pady=3)
-        
         pw_help_text = ("- You MUST enter a main password.\n"
                         "- Rclone's default internal salt will be used (no user input for salt).")
         ttk.Label(pw_frame, text=pw_help_text, justify=tk.LEFT).grid(row=2, column=0, columnspan=2, sticky="w", padx=5, pady=(5,2))
-        
         outer_frame.columnconfigure(1, weight=1)
         return self.remote_name_entry 
-
     def validate(self):
         remote_name = self.remote_name_entry.get().strip()
         if not remote_name:
@@ -296,35 +268,30 @@ class CryptSetupDialog(simpledialog.Dialog): # MODIFIED for further simplificati
         if any(c in remote_name for c in ":\\/\"'*?<>| "):
             messagebox.showerror("Validation Error", "Remote name contains invalid characters or spaces.", parent=self)
             return 0
-        
         if not self.target_combo: 
              messagebox.showerror("Validation Error", "No existing remotes found. Cannot create crypt target.", parent=self)
              return 0
         if not self.target_remote_var.get():
             messagebox.showerror("Validation Error", "Please select a target remote.", parent=self)
             return 0
-
         pw1 = self.pw1_entry.get()
         pw1_confirm = self.pw1_confirm_entry.get()
-        
-        if not pw1: # Main password is now mandatory
+        if not pw1:
             messagebox.showerror("Validation Error", "Main password cannot be empty.", parent=self)
             return 0
         if pw1 != pw1_confirm:
             messagebox.showerror("Validation Error", "Main passwords do not match.", parent=self)
             return 0
         return 1
-
     def apply(self):
         target_remote_name = self.target_remote_var.get() if self.target_combo else ""
-        
         params = {
             "remote_name": self.remote_name_entry.get().strip(),
             "target_remote": f"{target_remote_name}:" if target_remote_name else "", 
             "filename_encryption_gui_choice": self.fn_encrypt_var.get(),
-            "directory_name_encryption_gui_choice": self.dir_encrypt_var.get(), # Re-added
-            "password_main_choice_gui": "y", # Always 'y' as user must provide password
-            "password_main_value": self.pw1_entry.get() # Salt choice is 'n' (hardcoded in autoconfig)
+            "directory_name_encryption_gui_choice": self.dir_encrypt_var.get(),
+            "password_main_choice_gui": "y",
+            "password_main_value": self.pw1_entry.get()
         }
         self.result = params
         self.dialog_logger.debug(f"CryptSetupDialog apply() - self.result: {self.result}")
@@ -387,9 +354,8 @@ class ConfigProgressWindow(tk.Toplevel):
         if self.automation_active:
             if messagebox.askyesno("Cancel Setup?","Configuration in progress. Cancel?",parent=self):
                 self.update_output_display("--- Close requested. Attempting cancel... ---\n",False)
-                if "pCloud" in self.title() and hasattr(self.main_gui,'pcloud_auth_event'): # Specific to pCloud's current cancel mechanism
+                if "pCloud" in self.title() and hasattr(self.main_gui,'pcloud_auth_event'):
                     self.main_gui.pcloud_auth_result_holder['result']=False; self.main_gui.pcloud_auth_event.set()
-                # For crypt, cancellation is mostly via process termination if it hangs or errors.
             else: return 
         if hasattr(self.main_gui,'active_config_window_ref') and self.main_gui.active_config_window_ref==self: self.main_gui.active_config_window_ref=None
         self.destroy()
@@ -401,17 +367,20 @@ class RcloneGUI:
         self.master.geometry("950x800") 
         self.master.minsize(860, 650) 
         try:
-            # Assuming smalllogo.ico is in the same directory as the script
-            icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "smalllogo.ico")
+            icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "smalllogo.png")
             if os.path.exists(icon_path):
-                self.master.iconbitmap(icon_path)
+                photo = tk.PhotoImage(file=icon_path)
+                self.master.iconphoto(True, photo)
+            else:
+                 if sys.platform == "win32":
+                    icon_path_ico = os.path.join(os.path.dirname(os.path.abspath(__file__)), "smalllogo.ico")
+                    if os.path.exists(icon_path_ico):
+                        self.master.iconbitmap(icon_path_ico)
         except Exception:
-            # Silently pass if there's any issue setting the icon (e.g., file not found, invalid format)
             pass
         style = ttk.Style()
         self.theme_colors = apply_graphite_theme(style)
         master.configure(bg=self.theme_colors['WINDOW_BG'])
-
         app_font_tuple = ('Arial', 10)
         master.option_add('*TCombobox*Listbox.background', self.theme_colors['WIDGET_BG'])
         master.option_add('*TCombobox*Listbox.foreground', self.theme_colors['TEXT_COLOR'])
@@ -421,22 +390,19 @@ class RcloneGUI:
         master.option_add('*TCombobox*Listbox.borderWidth', '0')
         master.option_add('*TCombobox*Listbox.relief', 'flat')
         master.option_add('*TCombobox*Listbox.highlightThickness', '0')
-
         global logger 
         if logger is None: 
              log_utils.setup_logging() 
              logger = log_utils.get_logger("RcloneGUI_App_Recovery")
              logger.warning("Logger was None in RcloneGUI init, re-attempted setup.")
-
         if not os.path.exists(rclone.RCLONE_EXE_PATH): 
             critical_msg = f"CRITICAL ERROR: {rclone.RCLONE_EXE_NAME} not found at {rclone.RCLONE_EXE_PATH}."
             logger.critical(critical_msg) 
             if hasattr(log_utils, 'app_log'): log_utils.app_log(critical_msg, level="critical", gui_log_func=self._gui_log_callback)
             else: print(critical_msg) 
-            messagebox.showerror("Rclone Not Found", critical_msg + "\nPlease place rclone.exe in the script's directory or ensure it's in your system PATH.", parent=master if master.winfo_exists() else None)
+            messagebox.showerror("Rclone Not Found", critical_msg + "\nPlease place rclone executable in the script's directory or ensure it's in your system PATH.", parent=master if master.winfo_exists() else None)
             if master.winfo_exists(): master.destroy()
             raise SystemExit("Rclone executable not found, aborting GUI init.")
-        
         self.rclone_config_password = None
         self.current_local_path = tk.StringVar(value=os.getcwd())
         self.current_remote_base = tk.StringVar()
@@ -449,10 +415,8 @@ class RcloneGUI:
         self.associated_remote_lists = {}
         self.auto_setup_providers = ["pCloud"] 
         self.selected_auto_setup_provider = tk.StringVar()
-
         style.configure("Path.TLabel", font=('Arial', 10, 'bold'))
         style.configure("Header.TLabel", font=('Arial', 12, 'bold'))
-
         self.main_canvas = tk.Canvas(master, borderwidth=0, background=self.theme_colors['WINDOW_BG'])
         self.main_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         self.scrollbar = ttk.Scrollbar(master, orient=tk.VERTICAL, command=self.main_canvas.yview)
@@ -463,7 +427,6 @@ class RcloneGUI:
         self.scrollable_frame.bind("<Configure>", self._on_frame_configure)
         self.main_canvas.bind("<Configure>", self._on_canvas_configure)
         main_content_frame = self.scrollable_frame 
-
         log_frame_gui_container = ttk.LabelFrame(main_content_frame, text="GUI Log (Detailed logs in log.txt)", padding="10")
         scrolled_text_options_gui_log = {
             'background': self.theme_colors['WIDGET_BG'], 'foreground': self.theme_colors['TEXT_COLOR'],
@@ -478,14 +441,12 @@ class RcloneGUI:
         self.gui_log_text.tag_config("info", foreground=self.theme_colors['LOG_INFO_FG'])
         self.gui_log_text.tag_config("stdout", foreground=self.theme_colors['LOG_STDOUT_FG'])
         self.gui_log_text.tag_config("stdin", foreground=self.theme_colors['LOG_STDIN_FG'])
-
         self.check_and_get_config_password() 
-
         top_bar_frame = ttk.Frame(main_content_frame)
         top_bar_frame.pack(fill=tk.X, pady=5) 
         config_buttons_frame = ttk.Frame(top_bar_frame)
         config_buttons_frame.pack(side=tk.RIGHT, padx=(10,0), pady=0, fill=tk.Y) 
-        cmd_config_btn = ttk.Button(config_buttons_frame, text="Rclone Config (CMD)", command=self.launch_rclone_config_cmd)
+        cmd_config_btn = ttk.Button(config_buttons_frame, text="Rclone Config", command=self.launch_rclone_config_cmd)
         cmd_config_btn.pack(side=tk.TOP, anchor=tk.W, padx=2, pady=2, fill=tk.X)
         create_crypt_btn = ttk.Button(config_buttons_frame, text="Create Crypt Remote", command=self.open_crypt_setup_dialog)
         create_crypt_btn.pack(side=tk.TOP, anchor=tk.W, padx=2, pady=2, fill=tk.X)
@@ -497,7 +458,6 @@ class RcloneGUI:
         self.provider_auto_setup_combo.pack(side=tk.TOP, anchor=tk.W, padx=2, pady=2, fill=tk.X)
         auto_setup_btn = ttk.Button(config_buttons_frame, text="Run pCloud Setup", command=self.initiate_auto_setup)
         auto_setup_btn.pack(side=tk.TOP, anchor=tk.W, padx=2, pady=2, fill=tk.X)
-        
         remote_frame = ttk.LabelFrame(top_bar_frame, text="Remote Selection", padding="10")
         remote_frame.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0,5), pady=0) 
         ttk.Label(remote_frame, text="Select Remote:").grid(row=0, column=0, padx=5, pady=5, sticky="w")
@@ -509,7 +469,6 @@ class RcloneGUI:
         delete_remote_btn = ttk.Button(remote_frame, text="Delete", command=self.confirm_delete_remote)
         delete_remote_btn.grid(row=0, column=3, padx=(2,5), pady=5)
         remote_frame.columnconfigure(1, weight=1)
-
         path_frame = ttk.Frame(main_content_frame, padding="5") 
         path_frame.pack(fill=tk.X, pady=5); path_frame.columnconfigure(0, weight=1)
         ttk.Label(path_frame, text="Local Path:", style="Header.TLabel").grid(row=0, column=0, padx=5, pady=(10,0), sticky="w")
@@ -517,7 +476,6 @@ class RcloneGUI:
         local_path_buttons_frame = ttk.Frame(path_frame); local_path_buttons_frame.grid(row=2, column=0, padx=5, pady=5, sticky="w")
         local_browse_btn = ttk.Button(local_path_buttons_frame, text="Browse Local", command=self.browse_local_path); local_browse_btn.pack(side=tk.LEFT, padx=(0,5))
         refresh_dirs_btn = ttk.Button(local_path_buttons_frame, text="Refresh Directories", command=self.refresh_all_listings); refresh_dirs_btn.pack(side=tk.LEFT)
-
         listings_frame = ttk.Frame(main_content_frame) 
         listings_frame.pack(expand=True, fill=tk.BOTH, pady=5); listings_frame.columnconfigure(0, weight=1); listings_frame.columnconfigure(1, weight=1); listings_frame.rowconfigure(2, weight=1) 
         self.listbox_options = {'background':self.theme_colors['WIDGET_BG'],'foreground':self.theme_colors['TEXT_COLOR'],'selectbackground':self.theme_colors['SELECT_BG_COLOR'],
@@ -534,7 +492,6 @@ class RcloneGUI:
         remote_scrollbar = ttk.Scrollbar(listings_frame, orient=tk.VERTICAL, command=self.remote_files_list.yview); self.remote_files_list.config(yscrollcommand=remote_scrollbar.set)
         self.remote_files_list.grid(row=2, column=1, sticky="nsew", padx=5); remote_scrollbar.grid(row=2, column=1, sticky="nse", padx=(0,5))
         self.remote_files_list.bind("<Double-1>", self.on_remote_double_click)
-
         actions_frame = ttk.LabelFrame(main_content_frame, text="Direct Actions (on selected items)", padding="10") 
         actions_frame.pack(fill=tk.X, pady=(5,0), padx=5) 
         save_selected_btn = ttk.Button(actions_frame, text="Save Selected Files/Folders Below", command=self.save_selected_to_associated_list); save_selected_btn.pack(side=tk.LEFT, padx=5)
@@ -542,11 +499,9 @@ class RcloneGUI:
         sync_lr_btn = ttk.Button(actions_frame, text="Sync Selected to Remote", command=lambda: self.start_operation("sync", "lr")); sync_lr_btn.pack(side=tk.LEFT, padx=5)
         copy_rl_btn = ttk.Button(actions_frame, text="Copy Selected to Local", command=lambda: self.start_operation("copy", "rl")); copy_rl_btn.pack(side=tk.LEFT, padx=5)
         sync_rl_btn = ttk.Button(actions_frame, text="Sync Selected to Local", command=lambda: self.start_operation("sync", "rl")); sync_rl_btn.pack(side=tk.LEFT, padx=5)
-
         self.create_associated_items_frame(main_content_frame) 
         log_frame_gui_container.pack(fill=tk.X, pady=(5,10), padx=5) 
         self.gui_log_text.pack(expand=True, fill=tk.BOTH) 
-
         self.log_message_gui("GUI Started. Check log.txt for detailed logs.\n", is_info=True)
         self.load_associated_lists_from_file()
         self.load_remotes()
@@ -555,12 +510,10 @@ class RcloneGUI:
         self.master.after(100, self.process_worker_thread_queue)
         self.master.lift()
         self.master.attributes('-topmost', True)
-        self.master.after_idle(self.master.attributes, '-topmost', False) # Release topmost after a moment
+        self.master.after_idle(self.master.attributes, '-topmost', False)
         self.master.focus_force()
-
     def _on_frame_configure(self, event=None): self.main_canvas.configure(scrollregion=self.main_canvas.bbox("all"))
-    def _on_canvas_configure(self, event=None): self.main_canvas.itemconfig(self.canvas_frame_id, width=event.width) # type: ignore
-    
+    def _on_canvas_configure(self, event=None): self.main_canvas.itemconfig(self.canvas_frame_id, width=event.width)
     def check_and_get_config_password(self):
         self.log_message_gui("Checking rclone configuration encryption...\n", is_info=True) 
         try:
@@ -575,17 +528,14 @@ class RcloneGUI:
             else: self.log_message_gui("Rclone config not encrypted or status undetermined.\n", is_info=True); log_utils.app_log("Rclone config not encrypted/undetermined.",gui_log_func=self._gui_log_callback,log_to_gui=False)
         except Exception as e: 
             self.log_message_gui(f"Error checking config encryption: {e}\n",is_error=True); log_utils.app_log(f"Failed config encryption check: {e}",level="error",gui_log_func=self._gui_log_callback,log_to_gui=False); logger.error("check_and_get_config_password error",exc_info=True)
-    
     def _gui_log_callback(self, message, is_error=False):
         if hasattr(self,'gui_log_text') and self.gui_log_text.winfo_exists(): self.log_message_gui(message,is_error=is_error)
         else: print(f"GUI Log ({'ERR' if is_error else 'INFO'}, widget not ready): {message.strip()}"); (logger.error if is_error else logger.info)(f"(Early log) {message.strip()}")
-    
     def log_message_gui(self, message, is_error=False, is_info=False):
         if not hasattr(self,'gui_log_text') or not self.gui_log_text.winfo_exists(): return
         self.gui_log_text.config(state=tk.NORMAL)
         tag = ("error",) if is_error else ("info",) if is_info else ("stdin",) if message.startswith("Sending to rclone:") else ("stdout",)
         self.gui_log_text.insert(tk.END, message, tag); self.gui_log_text.see(tk.END); self.gui_log_text.config(state=tk.DISABLED)
-    
     def create_associated_items_frame(self,parent_frame):
         self.associated_items_labelframe=ttk.LabelFrame(parent_frame,text="Associated Local Items for <No Remote Selected>",padding="10"); self.associated_items_labelframe.pack(fill=tk.X,pady=(5,0),padx=5)
         list_c=ttk.Frame(self.associated_items_labelframe); list_c.pack(side=tk.LEFT,fill=tk.BOTH,expand=True,padx=(0,5))
@@ -597,33 +547,27 @@ class RcloneGUI:
         ttk.Button(btns_f,text="List Settings...",command=self.configure_list_settings).pack(pady=2,fill=tk.X)
         ttk.Button(btns_f,text="Copy List ➔ Remote",command=lambda:self.run_operation_for_list("copy")).pack(pady=(8,2),fill=tk.X)
         ttk.Button(btns_f,text="Sync List ➔ Remote",command=lambda:self.run_operation_for_list("sync")).pack(pady=2,fill=tk.X)
-        ttk.Button(btns_f,text="Generate Batch File",command=self.prompt_generate_batch_file).pack(pady=(8,2),fill=tk.X)
-    
+        ttk.Button(btns_f,text="Generate Script",command=self.prompt_generate_batch_file).pack(pady=(8,2),fill=tk.X)
     def load_associated_lists_from_file(self): 
         self.associated_remote_lists={}; log_utils.app_log(f"Loading lists from {ASSOCIATED_LISTS_FILE}",gui_log_func=self._gui_log_callback,log_to_gui=False)
         if os.path.exists(ASSOCIATED_LISTS_FILE):
             try:
                 with open(ASSOCIATED_LISTS_FILE,"r",encoding="utf-8") as f: self.associated_remote_lists=json.load(f)
             except Exception as e: log_utils.app_log(f"Error loading lists: {e}",level="error",gui_log_func=self._gui_log_callback); messagebox.showerror("Load Error",f"Could not load {ASSOCIATED_LISTS_FILE}: {e}",parent=self.master)
-    
     def save_associated_lists_to_file(self): 
         try:
             with open(ASSOCIATED_LISTS_FILE,"w",encoding="utf-8") as f: json.dump(self.associated_remote_lists,f,indent=4)
             log_utils.app_log(f"Saved lists to {ASSOCIATED_LISTS_FILE}",gui_log_func=self._gui_log_callback,log_to_gui=False)
         except Exception as e: log_utils.app_log(f"Error saving lists: {e}",level="error",gui_log_func=self._gui_log_callback); messagebox.showerror("Save Error",f"Could not save lists: {e}",parent=self.master)
-    
     def display_associated_items_for_selected_remote(self): 
         if not hasattr(self,'associated_items_listbox'): return
         self.associated_items_listbox.delete(0,tk.END); remote_name=self._get_current_remote_name()
         self.associated_items_labelframe.config(text=f"Associated Items for: {remote_name if remote_name else '<No Remote>'}")
         if remote_name and remote_name in self.associated_remote_lists:
             for item_path in self.associated_remote_lists[remote_name].get("local_items",[]): self.associated_items_listbox.insert(tk.END,item_path)
-    
     def _get_current_remote_name(self): return self.current_remote_base.get().rstrip(':') 
-    
     def _ensure_remote_list_entry(self,remote_name): 
         if remote_name not in self.associated_remote_lists: self.associated_remote_lists[remote_name]={"local_items":[],"remote_dest_segment":"","rclone_flags":"-P --checksum --transfers=4"}
-    
     def save_selected_to_associated_list(self): 
         remote_name=self._get_current_remote_name(); sel_indices=self.local_files_list.curselection()
         if not remote_name: messagebox.showwarning("No Remote","Select remote first.",parent=self.master); return
@@ -637,7 +581,6 @@ class RcloneGUI:
                 self.associated_remote_lists[remote_name]["local_items"].append(full_path); items_log.append(full_path); added_count+=1
         if added_count > 0: self.associated_remote_lists[remote_name]["local_items"].sort(); self.save_associated_lists_to_file(); self.display_associated_items_for_selected_remote(); self.log_message_gui(f"{added_count} item(s) saved to list for '{remote_name}'.\n",is_info=True)
         else: messagebox.showinfo("No New Items","Selected items already in list or invalid.",parent=self.master)
-    
     def remove_item_from_list(self): 
         remote_name=self._get_current_remote_name(); sel_indices=self.associated_items_listbox.curselection()
         if not remote_name: messagebox.showwarning("No Remote","Select remote.",parent=self.master); return
@@ -646,14 +589,12 @@ class RcloneGUI:
         if remote_name in self.associated_remote_lists and item_path in self.associated_remote_lists[remote_name].get("local_items",[]):
             if messagebox.askyesno("Confirm Removal",f"Remove '{item_path}' from list for '{remote_name}'?",parent=self.master):
                 self.associated_remote_lists[remote_name]["local_items"].remove(item_path); self.save_associated_lists_to_file(); self.display_associated_items_for_selected_remote()
-    
     def configure_list_settings(self): 
         remote_name=self._get_current_remote_name()
         if not remote_name: messagebox.showwarning("No Remote","Select remote.",parent=self.master); return
         self._ensure_remote_list_entry(remote_name); current_data=self.associated_remote_lists[remote_name]
         dialog=AssociatedListSettingsDialog(self.master,current_data.get("remote_dest_segment",""),current_data.get("rclone_flags","-P --checksum --transfers=4"),self.theme_colors)
         if dialog.result: self.associated_remote_lists[remote_name].update(dialog.result); self.save_associated_lists_to_file(); messagebox.showinfo("Settings Saved",f"Settings updated for '{remote_name}'.",parent=self.master)
-    
     def run_operation_for_list(self,operation_type="copy"): 
         remote_name=self._get_current_remote_name()
         if not remote_name: messagebox.showwarning("No Remote","Select remote.",parent=self.master); return
@@ -673,13 +614,10 @@ class RcloneGUI:
             rclone.run_rclone_command(cmd,False,self._gui_log_callback,False,self.rclone_config_password)
         self.log_message_gui(f"All {op_name} commands for '{remote_name}' initiated. Check logs/consoles.\n",is_info=True)
         if self.master.winfo_exists(): self.master.after(10000,lambda:self.refresh_remote_files(None))
-    
     def refresh_all_listings(self): self.log_message_gui("Refreshing directories...\n",is_info=True); self.refresh_local_files(); self.refresh_remote_files(None) 
-    
     def browse_local_path(self): 
         d=filedialog.askdirectory(initialdir=self.current_local_path.get(),parent=self.master)
         if d: self.current_local_path.set(os.path.normpath(d)); self.refresh_local_files(); log_utils.app_log(f"Browsed local: {d}",gui_log_func=self._gui_log_callback,log_to_gui=False)
-    
     def load_remotes(self): 
         log_utils.app_log("Loading remotes...",gui_log_func=self._gui_log_callback,log_to_gui=False)
         try:
@@ -691,19 +629,15 @@ class RcloneGUI:
                 self.on_remote_selected(None); log_utils.app_log(f"Found remotes: {', '.join(self.remotes)}",gui_log_func=self._gui_log_callback,log_to_gui=False)
             else: self.remote_combo['values']=[]; self.remote_combo.set(''); self.on_remote_selected(None); log_utils.app_log("No rclone remotes found.",level="warning",gui_log_func=self._gui_log_callback,log_to_gui=True)
         except Exception as e: log_utils.app_log(f"Error loading remotes: {e}",level="error",gui_log_func=self._gui_log_callback,log_to_gui=True); logger.error("load_remotes error",exc_info=True); messagebox.showerror("Error",f"Could not load remotes: {e}",parent=self.master); self.remote_combo['values']=[]; self.remote_combo.set(''); self.on_remote_selected(None)
-    
     def on_remote_selected(self,event): 
         sel_remote=self.remote_combo.get()
         if sel_remote: self.current_remote_base.set(sel_remote+":"); self.current_remote_path_segment.set(""); self.update_remote_path_display(); self.refresh_remote_files(); self.display_associated_items_for_selected_remote(); log_utils.app_log(f"Selected remote: {sel_remote}",gui_log_func=self._gui_log_callback,log_to_gui=False)
         else: self.current_remote_base.set(""); self.current_remote_path_segment.set(""); self.update_remote_path_display(); self.remote_files_list.delete(0,tk.END); self.remote_files_list.insert(tk.END,"<No remote selected>"); self.display_associated_items_for_selected_remote()
-    
     def refresh_local_files(self): 
-        if not hasattr(self,'local_files_list') or not self.local_files_list.winfo_exists(): # Added winfo_exists check
+        if not hasattr(self,'local_files_list') or not self.local_files_list.winfo_exists():
             logger.warning("refresh_local_files: local_files_list widget does not exist or not ready.")
             return 
-        
         self.local_files_list.delete(0,tk.END)
-        
         current_path_str = ""
         try:
             current_path_str = self.current_local_path.get()
@@ -711,16 +645,12 @@ class RcloneGUI:
             logger.error(f"Error getting current_local_path: {e}")
             self.local_files_list.insert(tk.END,"<Error getting local path>")
             return
-
-        # Now 'path' is renamed to 'current_path_str' for clarity and assigned before use.
         if not current_path_str or not os.path.isdir(current_path_str): 
             self.local_files_list.insert(tk.END,f"<Invalid local path: '{current_path_str}'>")
             logger.warning(f"refresh_local_files: Invalid local path '{current_path_str}'.")
             return
-            
         self.local_files_list.insert(tk.END,"../")
         try:
-            # Use current_path_str consistently
             items=sorted(os.listdir(current_path_str),key=lambda s:(not os.path.isdir(os.path.join(current_path_str,s)),s.lower()))
             for item in items: 
                 self.local_files_list.insert(tk.END,item+("/" if os.path.isdir(os.path.join(current_path_str,item)) else ""))
@@ -728,7 +658,6 @@ class RcloneGUI:
             log_utils.app_log(f"Error listing local '{current_path_str}': {e}",level="error",gui_log_func=self._gui_log_callback,log_to_gui=True)
             self.local_files_list.insert(tk.END,f"<Error listing files: {e}>")
             logger.error(f"Error listing local files in {current_path_str}", exc_info=True)
-    
     def on_local_double_click(self,event): 
         if not hasattr(self,'local_files_list'): return; sel=self.local_files_list.curselection();
         if not sel: return; item=self.local_files_list.get(sel[0]); cur_dir=self.current_local_path.get(); new_path=""
@@ -737,7 +666,6 @@ class RcloneGUI:
         else: self.log_message_gui(f"Dbl-clicked local file: {item}.\n",is_info=True); return
         if os.path.isdir(new_path): self.current_local_path.set(new_path); self.refresh_local_files()
         else: messagebox.showwarning("Navigation Error",f"Path '{new_path}' not valid.",parent=self.master)
-    
     def refresh_remote_files(self,sub_item_nav=None): 
         if not hasattr(self,'remote_files_list'): return; full_remote_path=""
         if sub_item_nav:
@@ -758,20 +686,16 @@ class RcloneGUI:
                 for item_name in sorted(items,key=lambda s:(not s.endswith("/"),s.lower())): self.remote_files_list.insert(tk.END,item_name)
             elif not self.remote_files_list.size(): self.remote_files_list.insert(tk.END,"<Remote folder empty>")
         else: self.log_message_gui(f"Error listing '{full_remote_path}'. Rclone: {err_msg.strip() if err_msg else 'See logs'}\n",is_error=True); self.remote_files_list.insert(tk.END,f"<Error: {err_msg.strip() if err_msg else 'See logs'}>")
-    
     def on_remote_double_click(self,event): 
         if not hasattr(self,'remote_files_list'): return; sel=self.remote_files_list.curselection();
         if not sel: return; item=self.remote_files_list.get(sel[0])
         if item.endswith("/") or item=="../": self.refresh_remote_files(sub_item_nav=item)
         else: self.log_message_gui(f"Dbl-clicked remote file: {item}.\n",is_info=True)
-    
     def update_remote_path_display(self): 
         if not hasattr(self,'remote_path_display'):return; self.remote_path_display.config(text=self.get_full_remote_path() or "<Select Remote>")
-    
     def get_full_remote_path(self): 
         base=self.current_remote_base.get(); seg=self.current_remote_path_segment.get().strip("/")
         return base+seg if base and seg else base if base else ""
-
     def process_worker_thread_queue(self):
         try:
             while True: 
@@ -793,19 +717,16 @@ class RcloneGUI:
         except Exception as e: logger.error(f"Error processing worker queue: {e}", exc_info=True); self.log_message_gui(f"Internal error: {e}\n",is_error=True)
         finally:
             if self.master.winfo_exists(): self.master.after(100, self.process_worker_thread_queue)
-
     def generic_automation_completion_handler(self, success, provider_name="Unknown"):
         config_window = self.active_config_window_ref
         if success: self.log_message_gui(f"{provider_name} config successful. Refreshing remotes...\n",is_info=True); self.load_remotes() 
         else: self.log_message_gui(f"{provider_name} config failed/cancelled. Check logs/setup window.\n",is_error=True)
         if config_window and config_window.winfo_exists(): config_window.handle_automation_result(success, provider_name)
-
     def initiate_auto_setup(self): 
         provider = self.selected_auto_setup_provider.get()
         if not provider: messagebox.showwarning("No Provider", "No provider for pCloud auto-setup.", parent=self.master); return
         if provider == "pCloud": self.open_pcloud_config_window()
         else: messagebox.showinfo("Not Implemented", f"Auto-setup for '{provider}' N/A.", parent=self.master)
-
     def open_pcloud_config_window(self): 
         if self.active_config_window_ref and self.active_config_window_ref.winfo_exists():
             messagebox.showwarning("Setup in Progress", "Another config window is open.", parent=self.master); self.active_config_window_ref.lift(); return
@@ -819,37 +740,31 @@ class RcloneGUI:
             args=(name,self.worker_thread_queue,self.pcloud_auth_event,lambda:self.pcloud_auth_result_holder['result'],
                   self.worker_thread_queue, lambda:self.active_config_window_ref.auth_url_from_rclone if self.active_config_window_ref and self.active_config_window_ref.winfo_exists() else "",
                   self.rclone_config_password), daemon=True).start()
-
-    def open_crypt_setup_dialog(self): # MODIFIED
+    def open_crypt_setup_dialog(self):
         if self.active_config_window_ref and self.active_config_window_ref.winfo_exists():
             messagebox.showwarning("Setup in Progress", "Another config window is open.", parent=self.master); self.active_config_window_ref.lift(); return
         if not self.remotes:
              messagebox.showerror("No Target Remotes", "No existing remotes found. Please create a standard remote first to use as a target for crypt.", parent=self.master)
              return
-
         crypt_dialog = CryptSetupDialog(self.master, theme_colors_dict=self.theme_colors, existing_remotes=self.remotes)
         if crypt_dialog.result:
             params = crypt_dialog.result
             if not params["target_remote"] or not params["target_remote"].endswith(":"): 
                 messagebox.showerror("Error", "Invalid target remote selected for crypt.", parent=self.master); return
-
             self.log_message_gui(f"Starting Crypt setup for '{params['remote_name']}'...\n", is_info=True)
             self.active_config_window_ref = ConfigProgressWindow(self.master, self, f"Automated Crypt Setup: {params['remote_name']}", self.theme_colors)
-            # Update info text to reflect directory encryption choice and default salt
             info_text = (f"Creating Crypt remote '{params['remote_name']}' targeting root of '{params['target_remote']}'.\n"
                          f"Directory names will be {'encrypted' if params['directory_name_encryption_gui_choice'] else 'left as is'}.\n"
                          "Rclone's default internal salt will be used.")
             self.active_config_window_ref.set_info_text(info_text)
             self.active_config_window_ref.automation_started()
             log_utils.app_log(f"Starting Crypt automation for: {params['remote_name']}, Params: {params}", gui_log_func=self._gui_log_callback)
-            
             threading.Thread(
                 target=autoconfig.automate_crypt_config,
                 args=(params["remote_name"], 
                       params["target_remote"], 
                       params["filename_encryption_gui_choice"],
-                      params["directory_name_encryption_gui_choice"], # Pass this choice
-                      # password_main_choice_gui is now always 'y', implicitly handled by autoconfig using the value
+                      params["directory_name_encryption_gui_choice"],
                       params["password_main_value"], 
                       self.worker_thread_queue, 
                       self.worker_thread_queue, 
@@ -858,8 +773,7 @@ class RcloneGUI:
             ).start()
         else:
             self.log_message_gui("Crypt remote setup cancelled.\n", is_info=True)
-            
-    def start_operation(self, operation_type, direction): # Copied from previous full version, seems fine
+    def start_operation(self, operation_type, direction):
         sources_to_process = []
         source_items_display_names = []
         destination_base_path = ""
@@ -882,18 +796,15 @@ class RcloneGUI:
             sources_to_process = [f"{current_remote_full_path.rstrip('/')}/{name.rstrip('/')}" for name in source_items_display_names]
             destination_base_path = self.current_local_path.get()
             if not destination_base_path or not os.path.isdir(destination_base_path): messagebox.showerror("Error", "Local destination not valid.", parent=self.master); return
-        else: return # pragma: no cover
-
+        else: return
         op_display_name = operation_type.capitalize()
         confirm_msg = f"Are you sure you want to {operation_type} the selected item(s)?\n\n"
         confirm_msg += f"Source(s) ({len(source_items_display_names)} item(s) like: '{source_items_display_names[0]}', ...)\n"
         confirm_msg += f"Destination Base: '{destination_base_path}'"
         if not messagebox.askyesno(f"Confirm {op_display_name}", confirm_msg, parent=self.master):
             self.log_message_gui(f"{op_display_name} for selected items cancelled.\n", is_info=True); return
-
         self.log_message_gui(f"Initiating {op_display_name} for {len(sources_to_process)} selected item(s)...\n", is_info=True)
         log_utils.app_log(f"User confirmed {op_display_name}: {len(sources_to_process)} items. Sources like: {sources_to_process[0]}... Dest Base: {destination_base_path}", gui_log_func=self._gui_log_callback, log_to_gui=False)
-
         for i, src_full_path in enumerate(sources_to_process):
             item_basename_for_dest = os.path.basename(src_full_path.rstrip('/\\'))
             actual_rclone_destination = ""
@@ -910,57 +821,75 @@ class RcloneGUI:
             log_utils.app_log(f"Rclone cmd ({i+1}/{len(sources_to_process)} direct selection): rclone {' '.join(cmd_args)}", gui_log_func=self._gui_log_callback, log_to_gui=False) 
             rclone.run_rclone_command(cmd_args, capture_output=False, gui_log_func=self._gui_log_callback, config_password=self.rclone_config_password)
         self.log_message_gui(f"{op_display_name} for {len(sources_to_process)} items initiated.\nCheck log.txt or rclone console window(s) for progress.\n", is_info=True)
-        if self.master.winfo_exists(): # pragma: no branch
+        if self.master.winfo_exists():
             self.master.after(10000, self.refresh_local_files) 
             self.master.after(10000, lambda: self.refresh_remote_files(sub_item_nav=None))
-
-    def launch_rclone_config_cmd(self): 
-        rclone_exe = rclone.RCLONE_EXE_PATH; info="CMD for 'rclone config'. Follow instructions. Close CMD. Then 'Refresh Remotes'."
-        if self.rclone_config_password: info+="\n\nNOTE: Config password protected. May need to enter in CMD."
-        messagebox.showinfo("Rclone Config via CMD",info,parent=self.master)
+    def launch_rclone_config_cmd(self):
+        rclone_exe = rclone.RCLONE_EXE_PATH
+        info = "A terminal for 'rclone config' will be launched. Follow the instructions inside it. When finished, close the terminal and then click 'Refresh Remotes' in the GUI."
+        if self.rclone_config_password:
+            info += "\n\nNOTE: Your configuration is password protected. You may need to enter the password in the terminal."
+        messagebox.showinfo("Rclone Config via Terminal", info, parent=self.master)
         try:
-            log_utils.app_log(f"Launching CMD: {rclone_exe} config",gui_log_func=self._gui_log_callback,log_to_gui=False)
-            env=os.environ.copy();
-            if self.rclone_config_password: env["RCLONE_CONFIG_PASS"]=self.rclone_config_password
-            subprocess.Popen([rclone_exe,"config"],creationflags=subprocess.CREATE_NEW_CONSOLE,env=env)
-            self.log_message_gui("CMD for 'rclone config' launched. Refresh remotes when done.\n",is_info=True)
-        except Exception as e: err_msg=f"Failed to launch 'rclone config' CMD: {e}";log_utils.app_log(err_msg,level="error",gui_log_func=self._gui_log_callback,log_to_gui=True);logger.error("Launch CMD Error",exc_info=True);messagebox.showerror("Launch Error",f"{err_msg}\nCheck log.txt.",parent=self.master)
-    
+            log_utils.app_log(f"Launching terminal for: {rclone_exe} config", gui_log_func=self._gui_log_callback, log_to_gui=False)
+            env = os.environ.copy()
+            if self.rclone_config_password:
+                env["RCLONE_CONFIG_PASS"] = self.rclone_config_password
+            if sys.platform == "win32":
+                subprocess.Popen([rclone_exe, "config"], creationflags=subprocess.CREATE_NEW_CONSOLE, env=env)
+            else:
+                cmd = ['xterm', '-e', rclone_exe, 'config']
+                try:
+                    subprocess.Popen(cmd, env=env)
+                except FileNotFoundError:
+                    err_msg = "Could not find 'xterm'. Please install it or modify the script to use your preferred terminal (e.g., gnome-terminal)."
+                    messagebox.showerror("Terminal Not Found", err_msg, parent=self.master)
+                    log_utils.app_log(err_msg, level="error", gui_log_func=self._gui_log_callback, log_to_gui=True)
+                    return
+            self.log_message_gui("Terminal for 'rclone config' launched. Refresh remotes when done.\n", is_info=True)
+        except Exception as e:
+            err_msg = f"Failed to launch 'rclone config' terminal: {e}"
+            log_utils.app_log(err_msg, level="error", gui_log_func=self._gui_log_callback, log_to_gui=True)
+            logger.error("Launch Terminal Error", exc_info=True)
+            messagebox.showerror("Launch Error", f"{err_msg}\nCheck log.txt.", parent=self.master)
     def confirm_delete_remote(self): 
         sel_remote=self.remote_combo.get()
         if not sel_remote: messagebox.showwarning("No Remote","Select remote to delete.",parent=self.master); return
         if messagebox.askyesno("Confirm Delete",f"Permanently delete remote '{sel_remote}'?\nCannot be undone from GUI.",parent=self.master,icon=messagebox.WARNING): self.delete_remote(sel_remote)
-    
     def delete_remote(self,remote_name): 
         self.log_message_gui(f"Deleting remote: {remote_name}...\n",is_info=True); log_utils.app_log(f"Deleting remote: {remote_name}",gui_log_func=self._gui_log_callback,log_to_gui=False)
         out,err,rc=rclone.run_rclone_command(["config","delete",remote_name],True,self._gui_log_callback,False,self.rclone_config_password)
         if rc==0: self.log_message_gui(f"Remote '{remote_name}' deleted.\n",is_info=True); log_utils.app_log(f"Remote '{remote_name}' deleted. RC:{rc}.",gui_log_func=self._gui_log_callback,log_to_gui=False)
         else: err_msg=f"Failed to delete '{remote_name}'. RC:{rc}.\n"; err_msg+=f"Error: {err.strip()}\n" if err else ""; self.log_message_gui(err_msg,is_error=True); log_utils.app_log(f"Error deleting '{remote_name}'. RC:{rc}. Stderr:{err.strip()}",level="error",gui_log_func=self._gui_log_callback,log_to_gui=False); messagebox.showerror("Delete Failed",f"Could not delete '{remote_name}'.\n{err.strip() or 'Unknown error.'}",parent=self.master)
         self.load_remotes()
-    
     def prompt_generate_batch_file(self): 
         remote_name=self._get_current_remote_name()
-        if not remote_name: messagebox.showwarning("No Remote","Select remote for batch file.",parent=self.master); return
-        if remote_name not in self.associated_remote_lists or not self.associated_remote_lists[remote_name].get("local_items"): messagebox.showinfo("No Items",f"No items for '{remote_name}' for batch file.",parent=self.master); return
-        dialog=BatchGenDialog(self.master,f"Generate Batch for '{remote_name}'",self.theme_colors,rclone.RCLONE_EXE_PATH)
+        if not remote_name: messagebox.showwarning("No Remote","Select remote for script.",parent=self.master); return
+        if remote_name not in self.associated_remote_lists or not self.associated_remote_lists[remote_name].get("local_items"): messagebox.showinfo("No Items",f"No items for '{remote_name}' for script.",parent=self.master); return
+        is_windows = sys.platform == "win32"
+        script_type = "Batch File" if is_windows else "Shell Script"
+        default_extension = ".bat" if is_windows else ".sh"
+        file_types = [("Batch", "*.bat"), ("All", "*.*")] if is_windows else [("Shell Script", "*.sh"), ("All", "*.*")]
+        dialog=BatchGenDialog(self.master,f"Generate {script_type} for '{remote_name}'",self.theme_colors,rclone.RCLONE_EXE_PATH)
         if dialog.result:
             opts=dialog.result; list_data=self.associated_remote_lists[remote_name]
             self.log_message_gui(f"Generating script with opts: {opts}\n",is_info=True)
-            script_content=self.generate_batch_script_content(remote_name,list_data,opts)
-            def_fn=f"rclone_{remote_name.replace(':','_')}_{opts['operation']}.bat"
-            fp=filedialog.asksaveasfilename(parent=self.master,title="Save Batch File",initialfile=def_fn,defaultextension=".bat",filetypes=[("Batch","*.bat"),("All","*.*")])
+            if is_windows:
+                script_content = self.generate_batch_script_content(remote_name, list_data, opts)
+            else:
+                script_content = self.generate_shell_script_content(remote_name, list_data, opts)
+            def_fn=f"rclone_{remote_name.replace(':','_')}_{opts['operation']}{default_extension}"
+            fp=filedialog.asksaveasfilename(parent=self.master,title=f"Save {script_type}",initialfile=def_fn,defaultextension=default_extension,filetypes=file_types)
             if fp:
                 try:
-                    with open(fp,"w",encoding="utf-8",newline="\r\n") as f: f.write(script_content)
-                    self.log_message_gui(f"Batch file saved: {fp}\n",is_info=True)
-                    instr=f"Batch file '{os.path.basename(fp)}' saved.\n\nFor Task Scheduler:\n1. Open Task Scheduler.\n2. Create task.\n3. Action: 'Start a program'.\n4. Program/script: {fp}\n"
-                    if opts["password_option"]=="prompt": instr+="\nNOTE: Script prompts for password. Task may need to run interactively.\n"
-                    elif opts["password_option"]=="hardcode" and not opts["hardcoded_password"]: instr+="\nWARNING: Password hardcoded but blank.\n"
-                    elif opts["password_option"]=="hardcode": instr+="\nWARNING: Password hardcoded (less secure).\n"
-                    messagebox.showinfo("Batch File Generated",instr,parent=self.master)
-                except Exception as e: self.log_message_gui(f"Error saving batch: {e}\n",is_error=True); messagebox.showerror("Save Error",f"Failed to save: {e}",parent=self.master)
-        else: self.log_message_gui("Batch generation cancelled.\n",is_info=True)
-    
+                    with open(fp,"w",encoding="utf-8") as f: f.write(script_content)
+                    if not is_windows:
+                        os.chmod(fp, 0o755)
+                    self.log_message_gui(f"{script_type} saved: {fp}\n",is_info=True)
+                    instr=f"{script_type} '{os.path.basename(fp)}' saved."
+                    messagebox.showinfo(f"{script_type} Generated",instr,parent=self.master)
+                except Exception as e: self.log_message_gui(f"Error saving script: {e}\n",is_error=True); messagebox.showerror("Save Error",f"Failed to save: {e}",parent=self.master)
+        else: self.log_message_gui("Script generation cancelled.\n",is_info=True)
     def generate_batch_script_content(self,remote_name,list_data,options): 
         lines=[]; lines.append("@echo off" if options["password_option"]=="hardcode" else "@echo on"); lines.append("setlocal\n")
         lines.append(f":: Rclone Batch: Remote '{remote_name}', Op: {options['operation'].capitalize()}"); lines.append(f":: Generated by Rclone GUI {datetime.now():%Y-%m-%d %H:%M:%S}\n")
@@ -983,7 +912,46 @@ class RcloneGUI:
         lines.append("\n:: --- END OF SCRIPT ---"); lines.append(":end_script"); lines.append("echo Batch script operations complete."); lines.append("endlocal")
         if options["password_option"]=="prompt": lines.append("timeout /t 10 /nobreak >nul")
         return "\r\n".join(lines)
-
+    def generate_shell_script_content(self, remote_name, list_data, options):
+        lines = ["#!/bin/bash", "set -e\n"]
+        lines.append(f"# Rclone Shell Script: Remote '{remote_name}', Op: {options['operation'].capitalize()}")
+        lines.append(f"# Generated by Rclone GUI {datetime.now():%Y-%m-%d %H:%M:%S}\n")
+        lines.append(f"RCLONE_EXE=\"{options['rclone_exe']}\"")
+        lines.append('if [ ! -f "$RCLONE_EXE" ]; then')
+        lines.append('    echo "ERROR: Rclone not found at $RCLONE_EXE"')
+        lines.append('    exit 1')
+        lines.append('fi\n')
+        if options["password_option"] == "prompt":
+            lines.append('read -s -p "Enter rclone config password (blank if none): " RCLONE_CONFIG_PASS')
+            lines.append('export RCLONE_CONFIG_PASS')
+            lines.append('echo')
+        elif options["password_option"] == "hardcode":
+            lines.append(f"export RCLONE_CONFIG_PASS='{options['hardcoded_password']}'")
+        lines.append("\n# --- RCLONE COMMANDS ---")
+        local_items = list_data.get("local_items", [])
+        dest_seg = list_data.get("remote_dest_segment", "")
+        base_flags = list_data.get("rclone_flags", "")
+        if not local_items:
+            lines.append("# No local items in list.")
+        for i, local_item in enumerate(local_items):
+            item_base = os.path.basename(local_item)
+            remote_dest_parts = [remote_name + ":"]
+            if dest_seg:
+                remote_dest_parts.append(dest_seg)
+            remote_dest_parts.append(item_base)
+            final_dest = "/".join(s.strip("/") for s in remote_dest_parts if s)
+            cmd = ["\"$RCLONE_EXE\"", options["operation"]]
+            if base_flags:
+                cmd.extend(base_flags.split())
+            if options["log_enabled"] and options["log_file"]:
+                cmd.append(f"--log-file=\"{options['log_file']}\" --log-level=INFO")
+            cmd.append(f"\"{local_item}\"")
+            cmd.append(f"\"{final_dest}\"")
+            lines.append(f"\necho \"Processing item {i+1}/{len(local_items)}: {local_item} TO {final_dest}\"")
+            lines.append(" ".join(cmd))
+        lines.append("\n# --- END OF SCRIPT ---")
+        lines.append('echo "Shell script operations complete."')
+        return "\n".join(lines)
 
 if __name__ == '__main__': 
     _FINISH_PROGRAM_AND_EXIT_MAIN_ = False

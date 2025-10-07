@@ -1,45 +1,35 @@
-# graphite_theme.py
 import tkinter as tk
 from tkinter import ttk
 
 def apply_graphite_theme(style):
-    """
-    Applies a flat, 2D, sleek graphite dark theme to the given ttk.Style object.
-    Graphite main colors with white text.
-    """
-    WINDOW_BG = "#2E2E2E"  # Main background for the root window and Toplevels
-    FRAME_BG = "#3C3C3C"  # Background for Frames, LabelFrame content area
-    WIDGET_BG = "#4A4A4A" # Background for Entry, Listbox, Text, Combobox field
-    TEXT_COLOR = "#FFFFFF" # Primary text color
-    TEXT_DISABLED_COLOR = "#888888" # For disabled text
-    SELECT_BG_COLOR = "#007ACC" # A standard dark theme selection blue
-    SELECT_FG_COLOR = "#FFFFFF" # Text color for selected items
+    WINDOW_BG = "#2E2E2E"
+    FRAME_BG = "#3C3C3C"
+    WIDGET_BG = "#4A4A4A"
+    TEXT_COLOR = "#FFFFFF"
+    TEXT_DISABLED_COLOR = "#888888"
+    SELECT_BG_COLOR = "#007ACC"
+    SELECT_FG_COLOR = "#FFFFFF"
     
-    BORDER_COLOR_WIDGET = "#202020" # Dark, subtle border for widgets like Entry
-    BORDER_COLOR_FRAME = "#555555" # Slightly more visible border for LabelFrame edges
+    BORDER_COLOR_WIDGET = "#202020"
+    BORDER_COLOR_FRAME = "#555555"
     
-    BUTTON_BG_COLOR = "#555555" # Default button background
-    BUTTON_FG_COLOR = TEXT_COLOR # Button text color
-    BUTTON_ACTIVE_BG_COLOR = "#6A6A6A" # Button background on hover
-    BUTTON_PRESSED_BG_COLOR = "#454545" # Button background when pressed (distinctly darker)
+    BUTTON_BG_COLOR = "#555555"
+    BUTTON_FG_COLOR = TEXT_COLOR
+    BUTTON_ACTIVE_BG_COLOR = "#6A6A6A"
+    BUTTON_PRESSED_BG_COLOR = "#454545"
     
-    TROUGH_COLOR = "#2E2E2E" # Trough for scrollbars, progressbars (matches window bg)
-    SCROLLBAR_THUMB_BG = "#5F5F5F" # Thumb color for scrollbars
-    SCROLLBAR_THUMB_ACTIVE_BG = "#7A7A7A" # Scrollbar thumb when hovered/pressed
-    SCROLLBAR_ARROW_COLOR = TEXT_COLOR # Color of arrows on scrollbars
+    TROUGH_COLOR = "#2E2E2E"
+    SCROLLBAR_THUMB_BG = "#5F5F5F"
+    SCROLLBAR_THUMB_ACTIVE_BG = "#7A7A7A"
+    SCROLLBAR_ARROW_COLOR = TEXT_COLOR
 
-    # Attempt to use 'clam' theme as a base for better customizability
-    # It's generally more flexible for detailed styling than 'default'.
     try:
         style.theme_use('clam')
     except tk.TclError:
-        # Fallback if 'clam' is not available (e.g., minimal Tk installations)
         current_themes = style.theme_names()
-        if current_themes: # pragma: no cover
+        if current_themes:
             style.theme_use(current_themes[0])
-        # If no themes are available, it's a deeper Tk issue.
 
-    # --- Global Settings for all ttk widgets ---
     style.configure('.',
                     background=FRAME_BG,
                     foreground=TEXT_COLOR,
@@ -53,12 +43,9 @@ def apply_graphite_theme(style):
               fieldbackground=[('disabled', WIDGET_BG)], 
               background=[('disabled', FRAME_BG)])
 
-    # --- Specific TTK Widget Styling ---
-
     style.configure('TFrame', background=FRAME_BG)
 
     style.configure('TLabel', background=FRAME_BG, foreground=TEXT_COLOR, padding=(2,2))
-    # For specific labels defined in your GUI (font settings are in rclone_gui.py)
     style.configure('Header.TLabel', background=FRAME_BG, foreground=TEXT_COLOR)
     style.configure('Path.TLabel', background=FRAME_BG, foreground=TEXT_COLOR)
 
@@ -158,8 +145,8 @@ def apply_graphite_theme(style):
             style.map(element_name,
                       background=[('pressed', BUTTON_PRESSED_BG_COLOR),
                                   ('active', BUTTON_ACTIVE_BG_COLOR)])
-    except tk.TclError: # pragma: no cover
-        pass # Elements might not be directly stylable this way in all Tk/theme versions
+    except tk.TclError:
+        pass
 
     style.configure('TProgressbar',
                     background=SELECT_BG_COLOR, 

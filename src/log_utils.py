@@ -1,4 +1,3 @@
-# log_utils.py
 import logging
 import sys
 import os
@@ -7,7 +6,6 @@ from datetime import datetime
 LOG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "log.txt")
 is_configured = False
 
-# Function to get a logger instance
 def get_logger(name):
     return logging.getLogger(name)
 
@@ -17,7 +15,6 @@ def setup_logging():
         return
 
     try:
-        # Ensure log directory exists if LOG_FILE path includes subdirectories not automatically created
         log_dir = os.path.dirname(LOG_FILE)
         if log_dir and not os.path.exists(log_dir):
             os.makedirs(log_dir, exist_ok=True)
@@ -26,13 +23,10 @@ def setup_logging():
             if f.tell() == 0:
                 f.write(f"--- Log session started at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ---\n")
     except Exception as e:
-        # Fallback to printing error if file logging can't be initialized
         print(f"CRITICAL ERROR: Could not initialize log file {LOG_FILE} with UTF-8: {e}")
-        # Optionally, re-raise or handle more gracefully depending on application requirements
-        # For now, we'll let basicConfig try to set up, which might use a default handler
 
     logging.basicConfig(
-        level=logging.INFO, # Base level for file logging
+        level=logging.INFO,
         format="%(asctime)s - %(levelname)s - %(name)s - %(filename)s:%(lineno)d - %(message)s",
         handlers=[
             logging.FileHandler(LOG_FILE, mode='a', encoding='utf-8'),
@@ -57,24 +51,23 @@ class LogWriter:
         self.log_function = log_function
 
     def write(self, message):
-        if message.strip(): # Avoid logging empty lines
+        if message.strip():
             self.log_function(message.strip())
 
     def flush(self):
-        pass # No buffering
+        pass
 
 def app_log(message, level="info", gui_log_func=None, log_to_gui=True):
-    logger_instance = get_logger("RcloneGUI_App") # Use a consistent logger name
+    logger_instance = get_logger("RcloneGUI_App")
 
     log_level_actual = getattr(logging, level.upper(), logging.INFO)
     logger_instance.log(log_level_actual, message)
 
-    if gui_log_func and log_to_gui: # Check log_to_gui flag
+    if gui_log_func and log_to_gui:
         is_error_flag = (level.lower() in ["error", "critical"])
         try:
             gui_log_func(message, is_error=is_error_flag)
         except Exception as e_gui_log:
-            # Avoid app crash if gui_log_func itself fails (e.g., GUI closed)
             logger_instance.error(f"Failed to log message to GUI: {e_gui_log}", exc_info=False)
 
 
